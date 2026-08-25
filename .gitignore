@@ -7,4 +7,5 @@ chroma_db/*.chroma_db
 
 .env
 
-backend/__pycache__
+backend/__pycache__/
+*.pyc
