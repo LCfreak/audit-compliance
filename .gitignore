@@ -1,0 +1,8 @@
+backend/old
+company_mcp.py
+backend/models/
+backend/chroma_db/
+*.gguf
+chroma_db/*.chroma_db
+
+.env

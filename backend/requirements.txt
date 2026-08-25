@@ -1,0 +1,14 @@
+# langchain
+# langchain-community
+# langchain-chroma
+# langchain-huggingface
+# langchain-text-splitters
+# pymupdf
+# sentence-transformers
+fastapi
+uvicorn
+llama-cpp-python
+chromadb
+sentence-transformers
+pydantic
+pymupdf
