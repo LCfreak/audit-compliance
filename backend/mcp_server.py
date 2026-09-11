@@ -44,6 +44,7 @@ class BaseMcpServer:
 
 class ChatbotMcp (BaseMcpServer):
     def __init__ (self):
+        super().__init__()
         self.register_tool("fetch_employee_records",self.query_employee_record, FetchEmployeeSchema)
 
 
@@ -60,7 +61,7 @@ class ChatbotMcp (BaseMcpServer):
 class AgenticMcp (ChatbotMcp):
     def __init__(self):
         super().__init__()
-        self.register_tool("flag_payroll_anamoly", self.flag_payroll,FlagPayrollSchema )
+        self.register_tool("flag_payroll_anomaly", self.flag_payroll,FlagPayrollSchema )
 
 
     def flag_payroll(self, employee_id: str, reason:str, severity: str ) -> dict:

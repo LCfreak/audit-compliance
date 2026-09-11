@@ -1,125 +1,141 @@
-
-
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 export default function AuditDashboard() {
+  const [tenantId, setTenantId] = useState('tenant_alpha');
+  const [mode, setMode] = useState('agent');
   const [query, setQuery] = useState('');
+  const [empId, setEmpId] = useState('EMP-1001');
   const [chatLog, setChatLog] = useState([]);
-  const [metrics, setMetrics] = useState({ vram_usage_mb: 4250, memory_saved_percent: 34.2 });
-  const [loading, setLoading] = useState(false);
+  const [pipelineStage, setPipelineStage] = useState(null);
+  const [isConnected, setIsConnected] = useState(false);
+  const ws = useRef(null);
 
-  const handleAudit = async () => {
-    if (!query.trim()) return;
-    
-    const currentQuery = query;
+  useEffect(() => {
+    ws.current = new WebSocket(`ws://localhost:8000/ws/audit/${tenantId}`);
+
+    ws.current.onopen = () => setIsConnected(true);
+    ws.current.onclose = () => setIsConnected(false);
+
+    ws.current.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+
+      if (data.type === 'STATUS') {
+        setPipelineStage(data.payload);
+      } else if (data.type === 'CHAT_RESPONSE') {
+        setPipelineStage(null);
+        setChatLog(prev => [...prev, { role: 'assistant', type: 'chat', text: data.payload.response }]);
+      } else if (data.type === 'AGENT_RECEIPT') {
+        setPipelineStage(null);
+        setChatLog(prev => [...prev, { role: 'assistant', type: 'agent', payload: data.payload }]);
+      } else if (data.type === 'ERROR') {
+        setPipelineStage(null);
+        setChatLog(prev => [...prev, { role: 'assistant', type: 'error', text: data.payload.message }]);
+      }
+    };
+
+    return () => {
+      if (ws.current) ws.current.close();
+    };
+  }, [tenantId]);
+
+  const handleSend = () => {
+    if (!query.trim() || !isConnected) return;
+
+    const userMessage = { role: 'user', text: query };
+    setChatLog(prev => [...prev, userMessage]);
+
+    ws.current.send(JSON.stringify({
+      mode: mode,
+      query: query,
+      employee_id: empId
+    }));
+
     setQuery('');
-    setChatLog(prev => [...prev, { role: 'user', text: currentQuery }]);
-    setLoading(true);
-
-    try {
-      const res = await fetch('http://localhost:8000/api/audit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: currentQuery }) // Backend extracts employee ID automatically now!
-      });
-      
-      if (!res.ok) throw new Error(`Server status ${res.status}`);
-
-      const data = await res.json();
-      setChatLog(prev => [...prev, { role: 'assistant', text: data.response }]);
-      if (data.telemetry) setMetrics(data.telemetry);
-    } catch (err) {
-      console.error("API Error:", err);
-      setChatLog(prev => [...prev, { 
-        role: 'assistant', 
-        text: 'Error: Failed to connect to backend. Make sure Uvicorn is running on port 8000.' 
-      }]);
-    } finally {
-      setLoading(false);
-    }
   };
 
   return (
-    <div style={{ display: 'flex', height: '100vh', width: '100vw', background: '#f8f9fa', fontFamily: 'sans-serif', overflow: 'hidden' }}>
-      
-      {/* Main Chat Panel */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', padding: '2rem 3rem' }}>
+    <div style={{ display: 'flex', height: '100vh', width: '100vw', background: '#f8f9fa', fontFamily: 'sans-serif' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '2rem 3rem', height: '100%' }}>
         
-        {/* Header */}
-        <div style={{ marginBottom: '1.5rem' }}>
-          <h2 style={{ margin: '0 0 5px 0', color: '#212529' }}>Global Compliance Auditor</h2>
-          <p style={{ margin: 0, color: '#6c757d', fontSize: '0.9rem' }}>Hybrid RAG + MCP Autonomous Agent</p>
+        {/* Header & Multi-Tenant Config Controls */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', background: '#fff', padding: '1rem 1.5rem', borderRadius: '8px', border: '1px solid #dee2e6' }}>
+          <div>
+            <h3 style={{ margin: 0, color: '#212529' }}>Multi-Tenant SaaS Audit Engine</h3>
+            <span style={{ fontSize: '0.8rem', color: isConnected ? '#28a745' : '#dc3545', fontWeight: 'bold' }}>
+              ● {isConnected ? `Connected (Tenant: ${tenantId})` : 'Disconnected'}
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+            <div>
+              <label style={{ fontSize: '0.8rem', color: '#6c757d', marginRight: '6px' }}>Tenant Context:</label>
+              <select value={tenantId} onChange={(e) => setTenantId(e.target.value)} style={{ padding: '6px', borderRadius: '4px', border: '1px solid #ced4da' }}>
+                <option value="tenant_alpha">Tenant Alpha (Acme Corp)</option>
+                <option value="tenant_beta">Tenant Beta (Stark Ind)</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', background: '#e9ecef', borderRadius: '6px', padding: '2px' }}>
+              <button onClick={() => setMode('chat')} style={{ padding: '6px 12px', border: 'none', borderRadius: '4px', background: mode === 'chat' ? '#fff' : 'transparent', fontWeight: 'bold', cursor: 'pointer' }}>Chat</button>
+              <button onClick={() => setMode('agent')} style={{ padding: '6px 12px', border: 'none', borderRadius: '4px', background: mode === 'agent' ? '#fff' : 'transparent', fontWeight: 'bold', cursor: 'pointer' }}>Agentic Execution</button>
+            </div>
+          </div>
         </div>
 
-        {/* Chat Scroll Area */}
-        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px', paddingRight: '10px', marginBottom: '1.5rem' }}>
-          {chatLog.length === 0 && (
-            <div style={{ textAlign: 'center', color: '#adb5bd', marginTop: '20vh' }}>
-              <h3>How can I help you audit today?</h3>
-              <p style={{ fontSize: '0.85rem' }}>Example: "Check compliance for employee EMP-1001 regarding overtime limits."</p>
-            </div>
-          )}
-          
+        {/* Real-time Message Stream */}
+        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px', paddingRight: '10px', marginBottom: '1rem' }}>
           {chatLog.map((msg, idx) => (
             <div key={idx} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
-              <div style={{ 
-                maxWidth: '75%', 
-                padding: '12px 16px', 
-                borderRadius: '12px', 
-                background: msg.role === 'user' ? '#007bff' : '#ffffff', 
-                color: msg.role === 'user' ? '#ffffff' : '#212529',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-                border: msg.role === 'assistant' ? '1px solid #dee2e6' : 'none',
-                lineHeight: '1.5',
-                fontSize: '0.95rem'
-              }}>
-                {msg.text}
-              </div>
+              {msg.role === 'user' ? (
+                <div style={{ maxWidth: '70%', padding: '12px 16px', borderRadius: '12px', background: '#007bff', color: '#fff' }}>{msg.text}</div>
+              ) : msg.type === 'chat' ? (
+                <div style={{ maxWidth: '80%', padding: '12px 16px', borderRadius: '12px', background: '#fff', border: '1px solid #dee2e6' }}>{msg.text}</div>
+              ) : msg.type === 'agent' ? (
+                <div style={{ maxWidth: '80%', background: '#fff', border: '1px solid #dee2e6', borderRadius: '8px', padding: '16px' }}>
+                  <h4 style={{ margin: '0 0 8px 0', color: msg.payload.decision_payload.is_compliant ? '#28a745' : '#dc3545' }}>
+                    Compliance Status: {msg.payload.decision_payload.is_compliant ? "PASSED" : "FAILED"}
+                  </h4>
+                  <p style={{ margin: '0 0 8px 0', fontSize: '0.9rem' }}>{msg.payload.decision_payload.violation_details}</p>
+                  {msg.payload.automated_action_taken && (
+                    <div style={{ background: '#fff3cd', border: '1px solid #ffe69c', padding: '10px', borderRadius: '6px', fontSize: '0.85rem' }}>
+                      <strong>Action Executed:</strong> {msg.payload.automated_action_taken.action} | <strong>Audit ID:</strong> {msg.payload.automated_action_taken.audit_trail_id}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ color: 'red' }}>Error: {msg.text}</div>
+              )}
             </div>
           ))}
-          
-          {loading && (
-            <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
-              <div style={{ padding: '12px 16px', borderRadius: '12px', background: '#ffffff', border: '1px solid #dee2e6', color: '#6c757d', fontStyle: 'italic' }}>
-                Analyzing database record & cross-referencing labor laws...
-              </div>
+
+          {/* Live Pipeline Execution Ticker */}
+          {pipelineStage && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#e9ecef', padding: '10px 16px', borderRadius: '8px', width: 'fit-content' }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#495057' }}>[{pipelineStage.stage}]</span>
+              <span style={{ fontSize: '0.85rem', color: '#6c757d' }}>{pipelineStage.message}...</span>
             </div>
           )}
         </div>
 
         {/* Input Bar */}
-        <div style={{ display: 'flex', gap: '12px', background: '#ffffff', padding: '10px', borderRadius: '12px', border: '1px solid #ced4da', boxShadow: '0 2px 6px rgba(0,0,0,0.02)' }}>
+        <div style={{ display: 'flex', gap: '10px', background: '#fff', padding: '8px', borderRadius: '8px', border: '1px solid #ced4da' }}>
+          <input 
+            value={empId} 
+            onChange={(e) => setEmpId(e.target.value)} 
+            placeholder="Employee ID" 
+            style={{ width: '120px', padding: '8px', border: '1px solid #dee2e6', borderRadius: '4px' }}
+          />
           <input 
             value={query} 
             onChange={(e) => setQuery(e.target.value)} 
-            onKeyDown={(e) => e.key === 'Enter' && handleAudit()}
-            placeholder="Ask a compliance question (e.g., 'Audit EMP-1001 for overtime rules')..."
-            style={{ flex: 1, border: 'none', outline: 'none', padding: '0.5rem', fontSize: '1rem', background: 'transparent' }}
+            onKeyDown={(e) => e.key === 'Enter' && handleSend()} 
+            placeholder="Enter query or command..." 
+            style={{ flex: 1, border: 'none', outline: 'none', padding: '8px' }}
           />
-          <button 
-            onClick={handleAudit} 
-            style={{ padding: '0.6rem 1.4rem', background: '#007bff', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}
-          >
-            Send
-          </button>
+          <button onClick={handleSend} style={{ padding: '8px 20px', background: '#007bff', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}>Send</button>
         </div>
-      </div>
 
-      {/* Right Telemetry Pane */}
-      <div style={{ width: '320px', background: '#ffffff', borderLeft: '1px solid #dee2e6', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-        <h3 style={{ margin: 0, color: '#343a40' }}>Engine Telemetry</h3>
-        
-        <div style={{ background: '#f8f9fa', padding: '1rem', borderRadius: '8px', border: '1px solid #e9ecef' }}>
-          <span style={{ fontSize: '0.8rem', color: '#6c757d', fontWeight: 'bold' }}>ACTIVE VRAM / RAM</span>
-          <h2 style={{ margin: '5px 0 0 0', color: '#d9534f' }}>{metrics.vram_usage_mb} <span style={{ fontSize: '1rem' }}>MB</span></h2>
-        </div>
-        
-        <div style={{ background: '#f8f9fa', padding: '1rem', borderRadius: '8px', border: '1px solid #e9ecef' }}>
-          <span style={{ fontSize: '0.8rem', color: '#6c757d', fontWeight: 'bold' }}>KV CACHE SAVED</span>
-          <h2 style={{ margin: '5px 0 0 0', color: '#28a745' }}>{metrics.memory_saved_percent}%</h2>
-        </div>
       </div>
-
     </div>
   );
 }
